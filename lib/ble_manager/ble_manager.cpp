@@ -5,9 +5,9 @@
 BLEManager *BLEManager::instance = nullptr;
 
 // UUID service & characteristic Aolon Curve
-static const BLEUUID GENERIC_SERVICE("0000feea-0000-1000-8000-00805f9b34fb");
-static const BLEUUID CHAR_WRITE("0000fee2-0000-1000-8000-00805f9b34fb");
-static const BLEUUID CHAR_NOTIFY("0000fee3-0000-1000-8000-00805f9b34fb");
+static const BLEUUID GENERIC_SERVICE("0000fee0-0000-1000-8000-00805f9b34fb");
+static const BLEUUID CHAR_WRITE("00000013-0000-3512-2118-0009af100700");
+static const BLEUUID CHAR_NOTIFY("00000013-0000-3512-2118-0009af100700");
 static const BLEUUID HR_SERVICE("0000180d-0000-1000-8000-00805f9b34fb");
 static const BLEUUID HR_NOTIFY_CHAR("00002a37-0000-1000-8000-00805f9b34fb");
 
@@ -219,6 +219,7 @@ bool BLEManager::enableNotify(BLERemoteService *service, BLERemoteCharacteristic
     if (!characteristic)
     {
         Serial.println("[BLE] Characteristic Uninitialized");
+        return false;
     }
 
     BLERemoteDescriptor *desc = characteristic->getDescriptor(BLEUUID((uint16_t)0x2902));
