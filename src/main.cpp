@@ -17,12 +17,12 @@
 #ifdef DEVICE_MODE_CLIENT
 #include "ble_manager.h"
 // BLE target Aolon
-const int DEVICE_ID = 11;
-const char targetAddress[] PROGMEM = "f8:fd:e8:84:37:89";
+const int DEVICE_ID = 2;
+const char targetAddress[] PROGMEM = "CA:A8:BD:62:1A:2B";
 #define SOS_PIN GPIO_NUM_42 
-#define AOLON_SERVICE_UUID "0000feea-0000-1000-8000-00805f9b34fb"
-#define AOLON_WRITE_UUID "0000fee2-0000-1000-8000-00805f9b34fb"
-#define AOLON_NOTIFY_UUID "0000fee3-0000-1000-8000-00805f9b34fb"
+#define AOLON_SERVICE_UUID "0000fee0-0000-1000-8000-00805f9b34fb" //"0000feea-0000-1000-8000-00805f9b34fb"
+#define AOLON_WRITE_UUID "00000008-0000-3512-2118-0009af100700" // "0000fee2-0000-1000-8000-00805f9b34fb"
+#define AOLON_NOTIFY_UUID "00000008-0000-3512-2118-0009af100700" // "0000fee3-0000-1000-8000-00805f9b34fb"
 
 #define GPS_BAUD 9600
 HardwareSerial GPSSerial(2);
@@ -125,15 +125,15 @@ std::string TopictoString(Topic topic)
 
 #ifdef DEVICE_MODE_BASE
 // MQTT setup
-const char *WIFI_SSID = "vivoaswin";
-const char *WIFI_PASS = "satuduatigaempatlima";
+const char *WIFI_SSID = "CEO";
+const char *WIFI_PASS = "Setuju00";
 const char *MQTT_SERVER = "192.168.1.44";
 const uint16_t MQTT_PORT = 1883;
 const char *MQTT_USER = "mqtt";
 const char *MQTT_PASS = "mqttpass";
 const char *MQTT_TOPIC = "device/health";
-const char *API_URL = "http://smartazone.my.id/api/update-log";
-const char *SOS_API_URL = "http://smartazone.my.id/api/sos-trigger";
+const char *API_URL = "http://192.168.18.159:8000/api/update-log";
+const char *SOS_API_URL = "http://192.168.18.159:8000/api/sos-trigger";
 MqttManager mqtt(WIFI_SSID, WIFI_PASS, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS);
 AsyncHTTPRequest request;
 
@@ -184,7 +184,7 @@ void setupTime()
 void PostDeviceData(const DeviceData &data){
     static bool requestOpenResult = false;
     StaticJsonDocument<256> doc;
-    doc["device_id"] = data.device_id;
+    doc["device_id"] = data.device_id; // data.device_id
     if (data.topic == Topic::GPS || data.topic == Topic::SOS)
     {
         doc["lattitude"] = data.sensor.location.lattitude;
@@ -208,6 +208,8 @@ void PostDeviceData(const DeviceData &data){
        URL =  SOS_API_URL;
     else
         URL =  API_URL;
+    Serial.println("[HTTP] WiFi status: " + String(WiFi.status()));
+    Serial.println("[HTTP] Target URL: " + String(URL));
     serializeJson(doc, json);
     Serial.println("[HTTP] Preparing to post to " + String(URL));
     if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone){
@@ -225,22 +227,22 @@ void PostDeviceData(const DeviceData &data){
     }
 }
 
-void requestCallback(void *optParm,AsyncHTTPRequest* request, int readyState)
+void requestCallback(void *optParm, AsyncHTTPRequest* request, int readyState)
 {
-    (void) optParm;
     if (readyState == readyStateDone)
     {
         int status = request->responseHTTPcode();
+
+        Serial.println("========== HTTP DEBUG ==========");
+        Serial.printf("Status Code: %d\n", status);
+        Serial.printf("ReadyState: %d\n", readyState);
+        Serial.printf("Content-Length: %d\n", request->responseLength());
+
         String response = request->responseText();
-        if (status == 200|| status == 201)
-        {
-            Serial.println("[HTTP] Response: " + response);
-        }
-        else
-        {
-            Serial.printf("[HTTP] Error: status code %d\n", status );
-            Serial.println(response);
-        }
+
+        Serial.println("Body:");
+        Serial.println(response);
+        Serial.println("================================");
     }
 }
 
