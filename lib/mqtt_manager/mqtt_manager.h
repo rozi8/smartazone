@@ -25,7 +25,7 @@ private:
     const char *user;
     const char *pass;
     uint16_t port;
-
+ 
     WiFiClient wifiClient;
     PubSubClient mqttClient;
 
