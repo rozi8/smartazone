@@ -19,7 +19,7 @@ bool LoRaHandler::begin(float frequency)
 
     spi.begin(_sck, _miso, _mosi, _nss);
 
-    int state = radio.begin(frequency, 125.0, 7, 5, 0x34, 14, 8, 0.0f, false);
+    int state = radio.begin(frequency, 62.5, 12, 5, 0x34, 22, 8, 0.0f, false);
     if (state != RADIOLIB_ERR_NONE)
     {
         Serial.print(F("[LoRa] init failed: "));
