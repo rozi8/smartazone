@@ -18,11 +18,11 @@
 #include "ble_manager.h"
 // BLE target Aolon
 const int DEVICE_ID = 2;
-const char targetAddress[] PROGMEM = "CA:A8:BD:62:1A:2B";
+const char targetAddress[] PROGMEM = "78:02:B7:35:54:B4";
 #define SOS_PIN GPIO_NUM_42 
-#define AOLON_SERVICE_UUID "0000fee0-0000-1000-8000-00805f9b34fb" //"0000feea-0000-1000-8000-00805f9b34fb"
-#define AOLON_WRITE_UUID "00000008-0000-3512-2118-0009af100700" // "0000fee2-0000-1000-8000-00805f9b34fb"
-#define AOLON_NOTIFY_UUID "00000008-0000-3512-2118-0009af100700" // "0000fee3-0000-1000-8000-00805f9b34fb"
+#define AOLON_SERVICE_UUID "000055ff-0000-1000-8000-00805f9b34fb"
+#define AOLON_WRITE_UUID   "000033f1-0000-1000-8000-00805f9b34fb"
+#define AOLON_NOTIFY_UUID  "000033f2-0000-1000-8000-00805f9b34fb"
 
 #define GPS_BAUD 9600
 HardwareSerial GPSSerial(2);
@@ -63,9 +63,8 @@ void IRAM_ATTR handle_button_callback(){
     timers.debounce_tick = now;
     is_pressed = !digitalRead(SOS_PIN);
 }
-// =============================================
+
 // GPS Task
-// =============================================
 void gps_task(void *pvParameters)
 {
     GPSData *data = (GPSData *)pvParameters;
@@ -125,21 +124,29 @@ std::string TopictoString(Topic topic)
 
 #ifdef DEVICE_MODE_BASE
 // MQTT setup
-const char *WIFI_SSID = "CEO";
-const char *WIFI_PASS = "Setuju00";
-const char *MQTT_SERVER = "192.168.1.44";
+const char *WIFI_SSID = "MAMINO_XL_4G";
+const char *WIFI_PASS = "kopihitam";
+const char *MQTT_SERVER = "43.156.68.148";
 const uint16_t MQTT_PORT = 1883;
 const char *MQTT_USER = "mqtt";
 const char *MQTT_PASS = "mqttpass";
 const char *MQTT_TOPIC = "device/health";
-const char *API_URL = "http://192.168.18.159:8000/api/update-log";
-const char *SOS_API_URL = "http://192.168.18.159:8000/api/sos-trigger";
+const char *API_URL = "http://smartazone.com/api/update-log";
+const char *SOS_API_URL = "http://10.29.46.255:8000/api/sos-trigger";
 MqttManager mqtt(WIFI_SSID, WIFI_PASS, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS);
 AsyncHTTPRequest request;
 
-// =============================================
+// void testInternet() {
+//     WiFiClient client;
+//     if (client.connect("8.8.8.8", 53)) {
+//         Serial.println("[TEST] Internet OK");
+//     } else {
+//         Serial.println("[TEST] Internet FAILED");
+//     }
+// }
+
+
 // Sinkronisasi waktu (NTP)
-// =============================================
 time_t bootEpoch = 0;
 unsigned long bootMillis = 0;
 bool ntpSynced = false;
@@ -274,9 +281,8 @@ static const uint32_t STATUS_INTERVAL_MS = 60000;
 
 #endif
 
-// =============================================
+
 // Setup
-// =============================================
 void setup()
 {
     Serial.begin(115200);
@@ -314,16 +320,20 @@ void setup()
 #elif defined(DEVICE_MODE_BASE)
     setupTime();
     Serial.println(F("[Main] Mode: BASE"));
-    lora.begin(923.0);
+    //lora.begin(923.0);
+   
+    if (!lora.begin(923.0)) {
+    Serial.println(F("[Main] LoRa init failed"));
+    while (true) delay(1000);
+}
     request.setDebug(false);
     request.onReadyStateChange(requestCallback);
-    // mqtt.begin();
+    mqtt.begin();
 #endif
 }
 
-// =============================================
+
 // Loop utama
-// =============================================
 void loop()
 {
     uint32_t now = millis();
@@ -422,7 +432,7 @@ void loop()
     }
 #elif defined(DEVICE_MODE_BASE)
     // Mode RX → terima dan forward ke MQTT
-    // mqtt.loop();
+    mqtt.loop();
     String msg;
     DeviceData device_data;
     struct tm timeinfo;
@@ -454,9 +464,11 @@ void loop()
             mqtt_payload = String("{\"lattitude\":") + String(device_data.sensor.location.lattitude, 6) + String(", \"longitude\":") + String(device_data.sensor.location.longitude, 6) + String("}");
             full_topic = std::to_string(device_data.device_id) + "/" + TopictoString(device_data.topic);
         }
-        PostDeviceData(device_data);
-        // if (mqtt.isConnected())
-        //     mqtt.publish((char *)full_topic.c_str(), mqtt_payload);
+        //PostDeviceData(device_data);
+        if (mqtt.isConnected())
+{
+    mqtt.publish((char *)full_topic.c_str(), mqtt_payload);
+}
     }
 #endif
     delay(50);
