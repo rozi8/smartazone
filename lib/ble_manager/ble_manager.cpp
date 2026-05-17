@@ -5,11 +5,11 @@
 BLEManager *BLEManager::instance = nullptr;
 
 // UUID service & characteristic Aolon Curve
-static const BLEUUID GENERIC_SERVICE("0000fee0-0000-1000-8000-00805f9b34fb");
-static const BLEUUID CHAR_WRITE("00000013-0000-3512-2118-0009af100700");
-static const BLEUUID CHAR_NOTIFY("00000013-0000-3512-2118-0009af100700");
-static const BLEUUID HR_SERVICE("0000180d-0000-1000-8000-00805f9b34fb");
-static const BLEUUID HR_NOTIFY_CHAR("00002a37-0000-1000-8000-00805f9b34fb");
+static const BLEUUID GENERIC_SERVICE("000055ff-0000-1000-8000-00805f9b34fb");
+static const BLEUUID CHAR_WRITE("000033f1-0000-1000-8000-00805f9b34fb");
+static const BLEUUID CHAR_NOTIFY("000033f2-0000-1000-8000-00805f9b34fb");
+static const BLEUUID HR_SERVICE("000056ff-0000-1000-8000-00805f9b34fb");
+static const BLEUUID HR_NOTIFY_CHAR("000034f2-0000-1000-8000-00805f9b34fb");
 
 BLEManager::BLEManager(const char *targetAddress, uint32_t scanTime)
     : targetAddress(targetAddress),
@@ -22,9 +22,8 @@ BLEManager::BLEManager(const char *targetAddress, uint32_t scanTime)
     instance = this;
 }
 
-// ===========================================
+
 // Callback koneksi
-// ===========================================
 void BLEManager::MyClientCallback::onConnect(BLEClient *)
 {
     parent_->deviceConnected = true;
@@ -42,12 +41,11 @@ void BLEManager::MyClientCallback::onDisconnect(BLEClient *)
     parent_->pGenericNotifyCharacteristic = nullptr;
     parent_->pHRNotifyCharacteristic = nullptr;
     Serial.println("[BLE] Disconnected");
-    delay(300); // beri waktu cleanup stack BLE internal
+    delay(300); 
 }
 
-// ===========================================
+
 // Scan dan koneksi
-// ===========================================
 BLEAddress BLEManager::scanTarget()
 {
     BLEScan *scan = BLEDevice::getScan();
@@ -93,15 +91,17 @@ bool BLEManager::connect()
 
     if (!pClient)
         pClient = BLEDevice::createClient();
+
     if (pClient->isConnected())
     {
-        Serial.println("[BLE] Device has already connected");
+        Serial.println("[BLE] Device already connected");
         return true;
     }
 
     pClient->setClientCallbacks(&clientCb);
 
     Serial.printf("[BLE] Connecting to %s...\n", addr.toString().c_str());
+
     if (!pClient->connect(addr))
     {
         Serial.println("[BLE] Connect failed");
@@ -109,34 +109,59 @@ bool BLEManager::connect()
     }
 
     deviceConnected = true;
-    Serial.printf("[BLE] Connected to server\n");
-
-// Tampilkan daftar service untuk debug
-#ifdef DEBUG
-    std::map<std::string, BLERemoteService *> *services = pClient->getServices();
-    if (services && !services->empty())
-    {
-        Serial.println("[BLE] Services discovered: ");
-        for (auto &s : *services)
-            Serial.println(s.first.c_str());
-    }
-    else
-    {
-        Serial.println("[BLE] No services discovered (may still work)");
-    }
-#endif
+    Serial.println("[BLE] Connected to server");
 
     delay(500);
-    if (!setupServicesAndCharacteristics())
-        return false;
-    enableNotify(pGenericService, pGenericNotifyCharacteristic, &BLEManager::notifyThunk);
-    enableNotify(pHRRemoteService, pHRNotifyCharacteristic, &BLEManager::HRNotifyCallback);
+
+    std::map<std::string, BLERemoteService *> *services = pClient->getServices();
+
+    if (services && !services->empty())
+    {
+        Serial.println("[BLE] Services discovered:");
+        for (auto &s : *services)
+        {
+            Serial.println(s.first.c_str());
+        }
+    }
+
+
+    setupServicesAndCharacteristics();
+
+    if (services)
+    {
+        Serial.println("[BLE] Safe enabling notify...");
+
+        for (auto &s : *services)
+        {
+            auto chars = s.second->getCharacteristics();
+
+            for (auto &c : *chars)
+            {
+                if (c.second->canNotify())
+                {
+                    std::string uuid = c.first;
+
+                    if (
+                        uuid == "000033f2-0000-1000-8000-00805f9b34fb" ||
+                        uuid == "000034f2-0000-1000-8000-00805f9b34fb"
+                    )
+                    { 
+                        Serial.printf("[SAFE NOTIFY] %s\n", uuid.c_str());
+
+                        enableNotify(s.second, c.second, notifyThunk);
+
+                        delay(200);
+                    }
+                }
+            }
+        }
+    }
+
     return true;
 }
 
-// ===========================================
+
 // Reconnect handler
-// ===========================================
 bool BLEManager::tryReconnect()
 {
     unsigned long now = millis();
@@ -152,16 +177,10 @@ bool BLEManager::setupServicesAndCharacteristics()
 {
     if (!isConnected())
     {
-        Serial.println("[BLE] Device not connected, cannot setup services and characteristics");
+        Serial.println("[BLE] Not connected");
         return false;
     }
 
-    pHRRemoteService = pClient->getService(HR_SERVICE);
-    if (!pHRRemoteService)
-    {
-        Serial.println("[BLE] Heart Rate service not found");
-        return false;
-    }
     pGenericService = pClient->getService(GENERIC_SERVICE);
     if (!pGenericService)
     {
@@ -169,28 +188,20 @@ bool BLEManager::setupServicesAndCharacteristics()
         return false;
     }
 
-    pHRNotifyCharacteristic = pHRRemoteService->getCharacteristic(HR_NOTIFY_CHAR);
-    if (!pHRNotifyCharacteristic)
-    {
-        Serial.println("[BLE] HR Notify characteristic not found");
-        return false;
-    }
-
     pGenericWriteCharacteristic = pGenericService->getCharacteristic(CHAR_WRITE);
+    pGenericNotifyCharacteristic = pGenericService->getCharacteristic(CHAR_NOTIFY);
+
     if (!pGenericWriteCharacteristic)
     {
-        Serial.println("[BLE] Generic Write characteristic not found");
-        return false;
+        Serial.println("[BLE] Write char not found");
     }
 
-    pGenericNotifyCharacteristic = pGenericService->getCharacteristic(CHAR_NOTIFY);
     if (!pGenericNotifyCharacteristic)
     {
-        Serial.println("[BLE] Generic Notify characteristic not found");
-        return false;
+        Serial.println("[BLE] Notify char not found");
     }
 
-    Serial.println("[BLE] Services and characteristics setup complete");
+    Serial.println("[BLE] Service setup done");
     return true;
 }
 
@@ -206,38 +217,39 @@ bool BLEManager::checkServicesAndCharacteristics()
     return true;
 }
 
-// ===========================================
+
 // Enable notify function
-// ===========================================
-bool BLEManager::enableNotify(BLERemoteService *service, BLERemoteCharacteristic *characteristic, void (*callback)(BLERemoteCharacteristic *, uint8_t *, size_t, bool))
+bool BLEManager::enableNotify(
+    BLERemoteService *service,
+    BLERemoteCharacteristic *characteristic,
+    void (*callback)(BLERemoteCharacteristic *, uint8_t *, size_t, bool))
 {
-    if (!service)
+    if (!service || !characteristic)
     {
-        Serial.println("[BLE] Service Uninitialized");
-        return false;
-    }
-    if (!characteristic)
-    {
-        Serial.println("[BLE] Characteristic Uninitialized");
+        Serial.println("[BLE] Notify failed: null pointer");
         return false;
     }
 
     BLERemoteDescriptor *desc = characteristic->getDescriptor(BLEUUID((uint16_t)0x2902));
+
     if (!desc)
     {
-        Serial.println("[BLE] Notify descriptor not found");
+        Serial.println("[BLE] CCCD not found");
         return false;
     }
+
     uint8_t notifyOn[] = {0x01, 0x00};
+
     desc->writeValue(notifyOn, sizeof(notifyOn), true);
-    Serial.println("[BLE] Notify enabled");
+
     characteristic->registerForNotify(callback);
+
+    Serial.println("[BLE] Notify enabled");
+
     return true;
 }
 
-// ===========================================
 // Perintah trigger sensor
-// ===========================================
 bool BLEManager::triggerSpO2()
 {
     static const uint8_t cmd[] = {0xFE, 0xEA, 0x20, 0x06, 0x6B, 0x00};
@@ -266,38 +278,61 @@ bool BLEManager::triggerStress()
     return true;
 }
 
-// ===========================================
 // Callback untuk data BLE masuk
-// ===========================================
-void BLEManager::notifyThunk(BLERemoteCharacteristic *ch, uint8_t *data, size_t len, bool)
+void BLEManager::notifyThunk(
+    BLERemoteCharacteristic *ch,
+    uint8_t *data,
+    size_t len,
+    bool)
 {
-    if (len == 0 || !ch)
-        return;
+    if (!data || len == 0) return;
 
-    char stress_prefix[] = {0xFE, 0xEA, 0x20, 0x08, 0xB9, 0x11, 0x00};
-    char spo2_prefix[] = {0xFE, 0xEA, 0x20, 0x06, 0x6B};
-
-    // check prefix if stress
-    if (len == 8 && memcmp(data, stress_prefix, sizeof(stress_prefix)) == 0)
+    
+    // PRINT RAW
+    Serial.print("\n[BLE RAW] len=");
+    Serial.print(len);
+    Serial.print(" data: ");
+    for (int i = 0; i < len; i++)
     {
-        if (data[7] == 0xFF)
-            return;
-
-        instance->Stress.data = data[7];
-        instance->Stress.isNew = true;
-        return;
+        Serial.printf("%02X ", data[i]);
     }
-    // check prefix if SpO2
-    if (len == 6 && memcmp(data, spo2_prefix, sizeof(spo2_prefix)) == 0)
+    Serial.println();
+
+    
+    // F7 = STREAM SPO2
+    if (data[0] == 0x34)
+{
+    if (len >= 4)
     {
-        if (data[5] == 0xFF)
-            return;
-        instance->SpO2.data = data[5];
+        uint8_t value = data[3];
+
+        Serial.printf("[DECODE] SPO2 (0x34): %d\n", value);
+
+        instance->SpO2.data = value;
         instance->SpO2.isNew = true;
+    }
+
+    return;
+}
+
+
+    // E5 = RESPONSE  HR
+    if (data[0] == 0xE5)
+    {
+        if (len >= 4)
+        {
+            uint8_t value = data[3];
+
+            Serial.printf("[DECODE] HR RESPONSE: %d\n", value);
+
+            instance->HR.data = value;
+            instance->HR.isNew = true;
+        }
+
         return;
     }
 
-    Serial.printf("[BLE] Unknown Data,len %d, data :%X \n", len, data);
+    Serial.println("[BLE] Unknown packet");
 }
 
 void BLEManager::HRNotifyCallback(BLERemoteCharacteristic *ch, uint8_t *data, size_t len, bool)
