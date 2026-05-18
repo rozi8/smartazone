@@ -7,17 +7,19 @@
 #include "data.h"
 
 #ifdef DEVICE_MODE_CLIENT
+#include "ble_manager.h"
 #elif defined(DEVICE_MODE_BASE)
 #include <AsyncHTTPRequest_Generic.h>   
 #include "ArduinoJson.h"
+#include <HTTPClient.h>
+#include <WiFiClientSecure.h>
 #endif
 
 #define LED_PIN GPIO_NUM_37
 
 #ifdef DEVICE_MODE_CLIENT
-#include "ble_manager.h"
 // BLE target Aolon
-const int DEVICE_ID = 2;
+const int DEVICE_ID = 3;
 const char targetAddress[] PROGMEM = "78:02:B7:35:54:B4";
 #define SOS_PIN GPIO_NUM_42 
 #define AOLON_SERVICE_UUID "000055ff-0000-1000-8000-00805f9b34fb"
@@ -27,7 +29,6 @@ const char targetAddress[] PROGMEM = "78:02:B7:35:54:B4";
 #define GPS_BAUD 9600
 HardwareSerial GPSSerial(2);
 TinyGPSPlus gps;
-
 
 static const uint32_t BLE_RECONNECT_MS = 5000;
 static const uint32_t TRIGGER_INTERVAL_MS = 300000;          // 5 menit
@@ -57,7 +58,6 @@ BLEManager ble(targetAddress, 6);
 void IRAM_ATTR handle_button_callback(){
     uint32_t now = millis();
     if ((now - timers.debounce_tick) < BUTTON_DEBUNCE_TIME){
-        // is_pressed = false;
         return;
     }
     timers.debounce_tick = now;
@@ -72,26 +72,6 @@ void gps_task(void *pvParameters)
     while (true)
     {
         uint32_t now = millis();
-        // while (GPSSerial.available())
-        // {
-        //     char c = GPSSerial.read();
-        //     gps.encode(c);
-        // }
-        // if (gps.location.isUpdated())
-        // {
-        //     if (!gps.location.isValid())
-        //     {
-        //         Serial.println("[GPS] Location invalid");
-        //         continue;
-        //     }
-        //     if (now - timers.gps_tick < GPS_INTERVAL_MS)
-        //         continue;
-        //     timers.gps_tick = now;
-        //     data->lattitude = gps.location.lat();
-        //     data->longitude = gps.location.lng();
-        //     data->isNew = true;
-        //     Serial.printf("[GPS] New location: %.6f, %.6f\n", data->lattitude, data->longitude);
-        // }
         if (now - timers.gps_tick < GPS_INTERVAL_MS)
             continue;
         timers.gps_tick = now;
@@ -103,6 +83,7 @@ void gps_task(void *pvParameters)
     }
 }
 #endif
+
 std::string TopictoString(Topic topic)
 {
     switch (topic)
@@ -124,29 +105,19 @@ std::string TopictoString(Topic topic)
 
 #ifdef DEVICE_MODE_BASE
 // MQTT setup
-const char *WIFI_SSID = "MAMINO_XL_4G";
-const char *WIFI_PASS = "kopihitam";
+const char *WIFI_SSID = "Redmi";
+const char *WIFI_PASS = "delapankarakter";
 const char *MQTT_SERVER = "43.156.68.148";
 const uint16_t MQTT_PORT = 1883;
 const char *MQTT_USER = "mqtt";
 const char *MQTT_PASS = "mqttpass";
 const char *MQTT_TOPIC = "device/health";
-const char *API_URL = "http://smartazone.com/api/update-log";
-const char *SOS_API_URL = "http://10.29.46.255:8000/api/sos-trigger";
+const char *API_URL = "https://smartazone.com/api/update-log";
+const char *SOS_API_URL = "https://smartazone.com/api/sos-trigger";
 MqttManager mqtt(WIFI_SSID, WIFI_PASS, MQTT_SERVER, MQTT_PORT, MQTT_USER, MQTT_PASS);
 AsyncHTTPRequest request;
 
-// void testInternet() {
-//     WiFiClient client;
-//     if (client.connect("8.8.8.8", 53)) {
-//         Serial.println("[TEST] Internet OK");
-//     } else {
-//         Serial.println("[TEST] Internet FAILED");
-//     }
-// }
-
-
-// Sinkronisasi waktu (NTP)
+// NTP
 time_t bootEpoch = 0;
 unsigned long bootMillis = 0;
 bool ntpSynced = false;
@@ -189,48 +160,66 @@ void setupTime()
 }
 
 void PostDeviceData(const DeviceData &data){
-    static bool requestOpenResult = false;
-    StaticJsonDocument<256> doc;
-    doc["device_id"] = data.device_id; // data.device_id
-    if (data.topic == Topic::GPS || data.topic == Topic::SOS)
-    {
-        doc["lattitude"] = data.sensor.location.lattitude;
+    JsonDocument doc; 
+    
+    doc["device_id"] = data.device_id; 
+
+    // Mapping Topic ke JSON
+    if (data.topic == Topic::GPS || data.topic == Topic::SOS) {
+        doc["latitude"] = data.sensor.location.lattitude; 
         doc["longitude"] = data.sensor.location.longitude;
-    }
-    else if (data.topic == Topic::HEART_RATE )
-    {
+    } else if (data.topic == Topic::HEART_RATE) {
         doc["heart_rate"] = data.sensor.value;
-    }
-    else if (data.topic == Topic::SPO2 )
-    {
+    } else if (data.topic == Topic::SPO2) {
         doc["spo2"] = data.sensor.value;
-    }
-    else if (data.topic == Topic::STRESS )
-    {
+    } else if (data.topic == Topic::STRESS) {
         doc["stress_level"] = data.sensor.value;
     }
+
     String json;
-    const char *URL; 
-    if (data.topic == Topic::SOS )
-       URL =  SOS_API_URL;
-    else
-        URL =  API_URL;
-    Serial.println("[HTTP] WiFi status: " + String(WiFi.status()));
-    Serial.println("[HTTP] Target URL: " + String(URL));
     serializeJson(doc, json);
-    Serial.println("[HTTP] Preparing to post to " + String(URL));
-    if (request.readyState() == readyStateUnsent || request.readyState() == readyStateDone){
-        requestOpenResult =  request.open("POST", URL);
-        request.setReqHeader("Content-Type", "application/json");
-        if (!requestOpenResult){
-            Serial.println("[HTTP] Failed to open request");
-            return;
-        }else{
-            request.send(json);
-            Serial.println("[HTTP] Posting data: " + json);
+
+    // HTTPS
+    const char *URL = (data.topic == Topic::SOS) ? SOS_API_URL : API_URL;
+
+    
+    WiFiClientSecure *client = new WiFiClientSecure;
+    
+    if(client) {
+        client->setInsecure(); // https aku bipas 
+        HTTPClient https;
+
+        Serial.print("[HTTPS] Memulai koneksi ke ");
+        Serial.println(URL);
+
+        if (https.begin(*client, URL)) {
+            https.addHeader("Content-Type", "application/json");
+            https.addHeader("Accept", "application/json");
+
+            Serial.print("[HTTPS] Mengirim data: ");
+            Serial.println(json);
+
+            // kirim method dengan payload JSON
+            int httpCode = https.POST(json);
+
+            if (httpCode > 0) {
+                Serial.printf("[HTTPS] Status Code: %d\n", httpCode);
+                
+                
+                if (httpCode == HTTP_CODE_OK || httpCode == HTTP_CODE_CREATED) {
+                    String payload = https.getString();
+                    Serial.println("[HTTPS] Response: " + payload);
+                }
+            } else {
+                Serial.printf("[HTTPS] POST gagal, error: %s\n", https.errorToString(httpCode).c_str());
+            }
+            https.end();
+        } else {
+            Serial.println("[HTTPS] Tidak dapat terhubung ke server");
         }
-    }else{
-        Serial.println("[HTTP] Request busy, skipping...");
+        delete client; // limit memori
+    } else {
+        Serial.println("[HTTPS] Gagal membuat WiFiClientSecure (Memori penuh?)");
     }
 }
 
@@ -253,10 +242,10 @@ void requestCallback(void *optParm, AsyncHTTPRequest* request, int readyState)
     }
 }
 
-struct Timers
+struct TimersBase
 {
     uint32_t status{0};
-} timers;
+} timers_base;
 
 time_t getCurrentTime()
 {
@@ -277,10 +266,6 @@ static const uint8_t LORA_RST = 8;
 
 LoRaHandler lora(LORA_NSS, LORA_DIO1, LORA_RST, LORA_BUSY, LORA_SCK, LORA_MISO, LORA_MOSI);
 static const uint32_t STATUS_INTERVAL_MS = 60000;
-#ifdef DEVICE_MODE_BASE
-
-#endif
-
 
 // Setup
 void setup()
@@ -301,17 +286,15 @@ void setup()
             delay(1000);
     }
     Serial.println(F("[Main] LoRa ready"));
-    // for auto start trigger
     timers.triggerTick = -300000;
-    // Start GPS task
     xTaskCreatePinnedToCore(
-        gps_task,         /* Task function. */
-        "GPS Task",       /* name of task. */
-        4096,             /* Stack size of task */
-        (void *)&gpsData, /* parameter of the task */
-        1,                /* priority of the task */
-        NULL,             /* Task handle to keep track of created task */
-        1);               /* pin task to core 1 */
+        gps_task,         
+        "GPS Task",       
+        4096,             
+        (void *)&gpsData, 
+        1,                
+        NULL,             
+        1);               
     pinMode(GPIO_NUM_47,OUTPUT);
     digitalWrite(GPIO_NUM_47,LOW);
     pinMode(SOS_PIN,INPUT_PULLUP);
@@ -320,8 +303,7 @@ void setup()
 #elif defined(DEVICE_MODE_BASE)
     setupTime();
     Serial.println(F("[Main] Mode: BASE"));
-    //lora.begin(923.0);
-   
+  
     if (!lora.begin(923.0)) {
     Serial.println(F("[Main] LoRa init failed"));
     while (true) delay(1000);
@@ -332,20 +314,18 @@ void setup()
 #endif
 }
 
-
 // Loop utama
 void loop()
 {
     uint32_t now = millis();
 
-    // Status periodik
+#ifdef DEVICE_MODE_CLIENT
     if (now - timers.status >= STATUS_INTERVAL_MS)
     {
         timers.status = now;
         Serial.printf("[Status] Uptime:%lus | Heap:%u bytes\n", now / 1000, ESP.getFreeHeap());
     }
 
-#ifdef DEVICE_MODE_CLIENT
     BLEData HR, SpO2, Stress;
     DeviceData new_data;
     if (is_pressed &&( timers.hold_tick == UINT32_MAX))
@@ -364,7 +344,7 @@ void loop()
         lora.transmit((uint8_t*)&new_data, sizeof(DeviceData));
         Serial.printf("send sos trigger data\n");
     }
-    // Reconnect BLE jika terputus
+    
     if (now - timers.bleReconnect >= BLE_RECONNECT_MS)
     {
         timers.bleReconnect = now;
@@ -378,7 +358,6 @@ void loop()
         }
     }
 
-    // Trigger SPO2 dan STRESS setiap 10 detik
     if (ble.isConnected() && (now - timers.triggerTick >= TRIGGER_INTERVAL_MS))
     {
         timers.triggerTick = now;
@@ -401,6 +380,7 @@ void loop()
     HR = ble.getLastHR();
     SpO2 = ble.getLastSpO2();
     Stress = ble.getLastStress();
+    
     if (HR.isNew)
     {
         Serial.printf("send hr data: %d \n", HR.data);
@@ -431,7 +411,12 @@ void loop()
         lora.transmit((uint8_t*)&new_data, sizeof(DeviceData));
     }
 #elif defined(DEVICE_MODE_BASE)
-    // Mode RX → terima dan forward ke MQTT
+    if (now - timers_base.status >= STATUS_INTERVAL_MS)
+    {
+        timers_base.status = now;
+        Serial.printf("[Status] Uptime:%lus | Heap:%u bytes\n", now / 1000, ESP.getFreeHeap());
+    }
+
     mqtt.loop();
     String msg;
     DeviceData device_data;
@@ -439,12 +424,14 @@ void loop()
     char timeStringBuff[64];
     String mqtt_payload;
     std::string full_topic;
+    
     if (!getLocalTime(&timeinfo))
     {
         Serial.println("Failed to obtain time");
         return;
     }
     strftime(timeStringBuff, sizeof(timeStringBuff), "%Y-%m-%d %H:%M:%S", &timeinfo);
+    
     if (lora.receive())
     {
         receivedPacket packet = lora.getNewPacket();
@@ -464,11 +451,12 @@ void loop()
             mqtt_payload = String("{\"lattitude\":") + String(device_data.sensor.location.lattitude, 6) + String(", \"longitude\":") + String(device_data.sensor.location.longitude, 6) + String("}");
             full_topic = std::to_string(device_data.device_id) + "/" + TopictoString(device_data.topic);
         }
-        //PostDeviceData(device_data);
-        if (mqtt.isConnected())
-{
-    mqtt.publish((char *)full_topic.c_str(), mqtt_payload);
-}
+        
+        PostDeviceData(device_data);
+        
+        // if (mqtt.isConnected()) {
+        //     mqtt.publish((char *)full_topic.c_str(), mqtt_payload);
+        // }
     }
 #endif
     delay(50);
